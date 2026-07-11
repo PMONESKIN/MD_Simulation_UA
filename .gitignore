@@ -1,0 +1,11 @@
+# Results (large trajectory/checkpoint files — don't push)
+results/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store

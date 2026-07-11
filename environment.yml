@@ -1,0 +1,8 @@
+name: openmm-md
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - openmm
+  - pdbfixer
+  - cudatoolkit
