@@ -65,51 +65,60 @@ def run_simulation(pdb_path, name, sim_ns, output_dir, resume=False):
     checkpoint_file = os.path.join(output_dir, f"{name}_checkpoint.chk")
     final_pdb = os.path.join(output_dir, f"{name}_final.pdb")
 
-    # ============================================================
-    # Step 1: Fix the PDB (add missing atoms, hydrogens)
-    # ============================================================
-    print("[1/6] Fixing PDB structure...")
-
-    fixer = PDBFixer(filename=str(pdb_path))
-    fixer.findMissingResidues()
-    fixer.findMissingAtoms()
-    fixer.addMissingAtoms()
-    fixer.addMissingHydrogens(7.4)  # pH 7.4
-
-    # Remove water from HADDOCK (we'll add our own)
-    fixer.removeHeterogens(keepWater=False)
-
-    print(f"  Missing residues found: {len(fixer.missingResidues)}")
-    print(f"  Structure fixed")
-
-    # ============================================================
-    # Step 2: Set up force field and solvate
-    # ============================================================
-    print("[2/6] Setting up force field and solvation...")
-
     # CHARMM36 for protein + peptide, TIP3P for water
     forcefield = ForceField('charmm36.xml', 'charmm36/water.xml')
 
-    modeller = Modeller(fixer.topology, fixer.positions)
+    # ============================================================
+    # Step 1-2: Load or build solvated system
+    # ============================================================
+    # When resuming, load the saved solvated PDB to guarantee same atom count
+    if resume and os.path.exists(solvated_pdb):
+        print("[1-2/6] Loading saved solvated system for resume...")
+        pdb_loaded = PDBFile(solvated_pdb)
+        topology = pdb_loaded.topology
+        positions = pdb_loaded.positions
+        print(f"  Loaded: {solvated_pdb}")
+        print(f"  Total atoms: {topology.getNumAtoms()}")
+    else:
+        print("[1/6] Fixing PDB structure...")
 
-    # Add water box with 1.0 nm padding and neutralizing ions
-    modeller.addSolvent(
-        forcefield,
-        model='tip3p',
-        padding=1.0 * nanometers,
-        ionicStrength=0.15 * molar,  # 150 mM NaCl (physiological)
-    )
+        fixer = PDBFixer(filename=str(pdb_path))
+        fixer.findMissingResidues()
+        fixer.findMissingAtoms()
+        fixer.addMissingAtoms()
+        fixer.addMissingHydrogens(7.4)  # pH 7.4
 
-    n_atoms = modeller.topology.getNumAtoms()
-    print(f"  Force field: CHARMM36")
-    print(f"  Water model: TIP3P")
-    print(f"  Ionic strength: 150 mM NaCl")
-    print(f"  Total atoms: {n_atoms}")
+        # Remove water from HADDOCK (we'll add our own)
+        fixer.removeHeterogens(keepWater=False)
 
-    # Save solvated system
-    with open(solvated_pdb, 'w') as f:
-        PDBFile.writeFile(modeller.topology, modeller.positions, f)
-    print(f"  Saved: {solvated_pdb}")
+        print(f"  Missing residues found: {len(fixer.missingResidues)}")
+        print(f"  Structure fixed")
+
+        print("[2/6] Setting up force field and solvation...")
+
+        modeller = Modeller(fixer.topology, fixer.positions)
+
+        # Add water box with 1.0 nm padding and neutralizing ions
+        modeller.addSolvent(
+            forcefield,
+            model='tip3p',
+            padding=1.0 * nanometers,
+            ionicStrength=0.15 * molar,  # 150 mM NaCl (physiological)
+        )
+
+        topology = modeller.topology
+        positions = modeller.positions
+
+        n_atoms = topology.getNumAtoms()
+        print(f"  Force field: CHARMM36")
+        print(f"  Water model: TIP3P")
+        print(f"  Ionic strength: 150 mM NaCl")
+        print(f"  Total atoms: {n_atoms}")
+
+        # Save solvated system
+        with open(solvated_pdb, 'w') as f:
+            PDBFile.writeFile(topology, positions, f)
+        print(f"  Saved: {solvated_pdb}")
 
     # ============================================================
     # Step 3: Create simulation system
@@ -117,7 +126,7 @@ def run_simulation(pdb_path, name, sim_ns, output_dir, resume=False):
     print("[3/6] Creating simulation system...")
 
     system = forcefield.createSystem(
-        modeller.topology,
+        topology,
         nonbondedMethod=PME,
         nonbondedCutoff=1.0 * nanometers,
         constraints=HBonds,
@@ -143,8 +152,8 @@ def run_simulation(pdb_path, name, sim_ns, output_dir, resume=False):
         except Exception:
             continue
 
-    simulation = Simulation(modeller.topology, system, integrator, platform)
-    simulation.context.setPositions(modeller.positions)
+    simulation = Simulation(topology, system, integrator, platform)
+    simulation.context.setPositions(positions)
 
     print(f"  Temperature: 310.15 K (37°C)")
     print(f"  Pressure: 1 atm (NPT)")
