@@ -180,10 +180,12 @@ def run_simulation(pdb_path, name, sim_ns, output_dir, resume=False):
             print("  Simulation already complete!")
             return
 
-        # Set up reporters (append mode for trajectory/log)
-        simulation.reporters.append(DCDReporter(traj_file, traj_interval, append=True))
+        # Set up reporters — new files for resumed segment to avoid corruption
+        resume_traj = os.path.join(output_dir, f"{name}_trajectory_resumed_{current_step}.dcd")
+        resume_log = os.path.join(output_dir, f"{name}_energy_resumed_{current_step}.csv")
+        simulation.reporters.append(DCDReporter(resume_traj, traj_interval))
         simulation.reporters.append(StateDataReporter(
-            open(log_file, 'a'), report_interval,
+            resume_log, report_interval,
             step=True, time=True, potentialEnergy=True, kineticEnergy=True,
             totalEnergy=True, temperature=True, volume=True, speed=True,
             separator=','
